@@ -69,7 +69,7 @@ The deployment path is:
 push to master -> Dokploy pulls Git -> Docker build -> release migrations/reconciliation -> restart -> health/readiness routing
 ```
 
-Repository: `git@github.com:Alphaw84/shredit_dev.git`. Public source and commit links use `https://github.com/Alphaw84/shredit_dev` without the `.git` suffix.
+Repository: `git@github.com:AlphaW84/shredit_dev.git`. Public source and commit links use `https://github.com/AlphaW84/shredit_dev` without the `.git` suffix.
 
 Configure the Dokploy application to build the repository with `Dockerfile` target `runner`, inject the exact commit as `NEXT_PUBLIC_GIT_COMMIT`, and expose port `3232`. Keep the Docker runtime command `node --require ./scripts/inject-peer-address.cjs server.js`; bypassing the preload removes the authenticated socket-peer boundary used by IP and country policy.
 

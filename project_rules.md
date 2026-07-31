@@ -80,7 +80,7 @@ Use the official 21st.dev MCP only for focused component evidence (`search`, `ge
 
 ## Deployment Rules
 
-- Git repository: `git@github.com:Alphaw84/shredit_dev.git` (public URL: `https://github.com/Alphaw84/shredit_dev`).
+- Git repository: `git@github.com:AlphaW84/shredit_dev.git` (public URL: `https://github.com/AlphaW84/shredit_dev`).
 - Deploy provider: Dokploy. Path: Git push to `master` -> Dokploy build -> one release migration/reconciliation step -> restart.
 - Production branch is `master`.
 - The application is built directly by Dokploy from Git. Do not add GHCR, signed-image comparison, or production JavaScript comparison workflows.
