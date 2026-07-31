@@ -16,8 +16,9 @@ function configureProduction(): void {
   const values: Record<string, string> = {
     NODE_ENV: "production",
     SHREDIT_LOCAL_EPHEMERAL: "false",
-    DATABASE_URL: "postgresql://shredit:shredit@127.0.0.1:5432/shredit",
-    VALKEY_URL: "redis://127.0.0.1:6379",
+    DATABASE_URL:
+      "postgresql://shredit_app:local-password@db.example:5432/shredit?sslmode=require",
+    VALKEY_URL: "redis://shredit:local-password@shredit-valkey:6379/0",
     PUBLIC_BASE_URL: "https://shredit.dev",
     GIT_REPOSITORY_URL: "https://github.com/example/shredit",
     NEXT_PUBLIC_GIT_COMMIT: "0123456789abcdef",
@@ -31,7 +32,7 @@ function configureProduction(): void {
     MAX_ACTIVE_NOTE_BYTES: "104857600",
     MAX_ACTIVE_NOTE_COUNT: "10000",
     TURNSTILE_ENABLED: "false",
-    TRUSTED_PROXY_CIDRS: "10.0.0.0/8",
+    TRUSTED_PROXY_CIDRS: "10.0.0.5/32",
   };
   for (const [key, value] of Object.entries(values)) vi.stubEnv(key, value);
   resetEnvForTests();
@@ -69,12 +70,82 @@ describe("fail-closed environment validation", () => {
     expect(() => getEnv()).toThrow(/GIT_REPOSITORY_URL/u);
   });
 
+  it("requires TLS and dedicated authentication for production database URLs", () => {
+    configureProduction();
+    vi.stubEnv(
+      "DATABASE_URL",
+      "postgresql://shredit_app:local-password@db.example:5432/shredit",
+    );
+    resetEnvForTests();
+    expect(() => getEnv()).toThrow(/DATABASE_URL must require TLS/u);
+
+    configureProduction();
+    vi.stubEnv(
+      "DATABASE_URL",
+      "postgresql://:local-password@db.example:5432/shredit?sslmode=require",
+    );
+    resetEnvForTests();
+    expect(() => getEnv()).toThrow(
+      /DATABASE_URL must include dedicated authentication/u,
+    );
+  });
+
+  it("requires Valkey authentication and a protected production transport", () => {
+    configureProduction();
+    vi.stubEnv("VALKEY_URL", "redis://:local-password@shredit-valkey:6379/0");
+    resetEnvForTests();
+    expect(() => getEnv()).toThrow(
+      /VALKEY_URL must include dedicated authentication/u,
+    );
+
+    configureProduction();
+    vi.stubEnv(
+      "VALKEY_URL",
+      "redis://shredit:local-password@cache.example:6379/0",
+    );
+    resetEnvForTests();
+    expect(() => getEnv()).toThrow(/VALKEY_URL must use rediss/u);
+
+    configureProduction();
+    vi.stubEnv(
+      "VALKEY_URL",
+      "rediss://shredit:local-password@cache.example:6379/0",
+    );
+    resetEnvForTests();
+    expect(() => getEnv()).not.toThrow();
+  });
+
+  it("rejects unsafe production capacity values beyond the safe integer range", () => {
+    configureProduction();
+    vi.stubEnv("MAX_ACTIVE_NOTE_BYTES", "9007199254740992");
+    resetEnvForTests();
+
+    expect(() => getEnv()).toThrow(/MAX_ACTIVE_NOTE_BYTES/u);
+  });
+
   it("requires an explicit trusted ingress range outside loopback", () => {
     configureProduction();
     vi.stubEnv("TRUSTED_PROXY_CIDRS", "");
     resetEnvForTests();
 
     expect(() => getEnv()).toThrow(/TRUSTED_PROXY_CIDRS/u);
+  });
+
+  it("requires exact, safe trusted proxy host addresses in production", () => {
+    configureProduction();
+    vi.stubEnv("TRUSTED_PROXY_CIDRS", "10.0.0.0/8");
+    resetEnvForTests();
+    expect(() => getEnv()).toThrow(/exact ingress hosts/u);
+
+    configureProduction();
+    vi.stubEnv("TRUSTED_PROXY_CIDRS", "127.0.0.1/32");
+    resetEnvForTests();
+    expect(() => getEnv()).toThrow(/Disallowed trusted proxy address/u);
+
+    configureProduction();
+    vi.stubEnv("TRUSTED_PROXY_CIDRS", "10.0.0.5/32,2001:db8::5/128");
+    resetEnvForTests();
+    expect(() => getEnv()).not.toThrow();
   });
 
   it.each(["SECURITY_POLICY_URL", "ABUSE_POLICY_URL"] as const)(

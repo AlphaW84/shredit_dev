@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { Pool } from "pg";
+import { getEnv } from "@/lib/config/env";
 
 async function main() {
-  const url = process.env.DATABASE_URL;
+  const url = getEnv().DATABASE_URL;
   if (!url) {
     console.error("DATABASE_URL is required for db:migrate");
     process.exitCode = 1;

@@ -1,0 +1,45 @@
+name: Abuse report
+description: Report misuse of the Shredit service without sharing note contents or secrets.
+title: "[Abuse] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this public form only for non-sensitive operational details. Do not include plaintext notes, passwords, URL fragments, full share URLs, encryption keys, production credentials, personal data, or evidence that should remain private.
+
+        For a security vulnerability, use the repository's private vulnerability reporting form instead.
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Service misuse
+        - Harmful or unlawful content
+        - Impersonation or trademark concern
+        - Other policy concern
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Non-sensitive summary
+      description: Describe the concern without quoting note contents or including a complete note URL.
+      placeholder: Briefly explain what happened and when it occurred.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reference
+    attributes:
+      label: Safe reference
+      description: Optional timestamp, public page, or other non-secret reference. Do not include a note ID, fragment, password, key, or complete share URL.
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Confirmation
+      options:
+        - label: I removed note contents, credentials, personal data, and other sensitive information from this public report.
+          required: true

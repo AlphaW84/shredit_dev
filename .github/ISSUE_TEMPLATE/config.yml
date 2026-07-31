@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Private security report
+    url: https://github.com/AlphaW84/shredit_dev/security/advisories/new
+    about: Report a vulnerability privately through GitHub Security Advisories.

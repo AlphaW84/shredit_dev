@@ -1,4 +1,9 @@
+import { isIP } from "node:net";
 import { z } from "zod";
+
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+const OVERLAY_VALKEY_HOSTNAME = "shredit-valkey";
+const DATABASE_TLS_MODES = new Set(["require", "verify-ca", "verify-full"]);
 
 const booleanFromEnv = z.preprocess((value) => {
   if (typeof value !== "string") return value;
@@ -18,6 +23,20 @@ const positiveIntegerFromEnv = z.preprocess((value) => {
   if (value === undefined || value === "") return undefined;
   return Number(value);
 }, z.number().int().positive().finite().optional());
+
+const safePositiveIntegerFromEnv = z.preprocess(
+  (value) => {
+    if (value === undefined || value === "") return undefined;
+    return Number(value);
+  },
+  z
+    .number()
+    .int()
+    .positive()
+    .finite()
+    .refine((value) => Number.isSafeInteger(value), "must be a safe integer")
+    .optional(),
+);
 
 const optionalString = z.preprocess(
   (value) => (value === "" ? undefined : value),
@@ -66,6 +85,119 @@ function validatePolicyUrl(
   }
 }
 
+function parseConnectionUrl(
+  key: "DATABASE_URL" | "VALKEY_URL",
+  value: string,
+  protocols: readonly string[],
+): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${key} must be a valid connection URL`);
+  }
+  if (!protocols.includes(parsed.protocol) || !parsed.hostname || parsed.hash) {
+    throw new Error(`${key} must use an allowed connection protocol and host`);
+  }
+  return parsed;
+}
+
+function hasDedicatedCredential(value: string): boolean {
+  if (!value) return false;
+  try {
+    return decodeURIComponent(value).trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function validateProductionConnectionUrls(
+  databaseValue: string,
+  valkeyValue: string,
+): void {
+  const databaseUrl = parseConnectionUrl("DATABASE_URL", databaseValue, [
+    "postgres:",
+    "postgresql:",
+  ]);
+  if (!DATABASE_TLS_MODES.has(databaseUrl.searchParams.get("sslmode") ?? ""))
+    throw new Error(
+      "DATABASE_URL must require TLS with sslmode=require, verify-ca, or verify-full",
+    );
+  if (
+    !hasDedicatedCredential(databaseUrl.username) ||
+    !hasDedicatedCredential(databaseUrl.password)
+  )
+    throw new Error("DATABASE_URL must include dedicated authentication");
+
+  const valkeyUrl = parseConnectionUrl("VALKEY_URL", valkeyValue, [
+    "redis:",
+    "rediss:",
+  ]);
+  if (
+    !hasDedicatedCredential(valkeyUrl.username) ||
+    !hasDedicatedCredential(valkeyUrl.password)
+  )
+    throw new Error("VALKEY_URL must include dedicated authentication");
+  const valkeyHost = valkeyUrl.hostname.toLowerCase();
+  const safePlaintextValkey =
+    valkeyUrl.protocol === "redis:" &&
+    (LOOPBACK_HOSTNAMES.has(valkeyHost) ||
+      valkeyHost === OVERLAY_VALKEY_HOSTNAME);
+  if (valkeyUrl.protocol !== "rediss:" && !safePlaintextValkey)
+    throw new Error(
+      "VALKEY_URL must use rediss:// outside loopback or the shredit-valkey overlay",
+    );
+}
+
+function isDisallowedTrustedProxyAddress(
+  address: string,
+  version: 4 | 6,
+): boolean {
+  if (version === 4) {
+    const octets = address.split(".").map((value) => Number(value));
+    return (
+      octets[0] === 0 ||
+      octets[0] === 127 ||
+      octets[0] >= 224 ||
+      (octets[0] === 169 && octets[1] === 254)
+    );
+  }
+  const normalized = address.toLowerCase();
+  return (
+    normalized === "::" ||
+    normalized === "::1" ||
+    normalized.startsWith("ff") ||
+    normalized.startsWith("fe80:")
+  );
+}
+
+function validateProductionTrustedProxyCidrs(value: string): void {
+  const entries = value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (entries.length === 0)
+    throw new Error("TRUSTED_PROXY_CIDRS must contain at least one CIDR");
+
+  const normalized = entries.map((entry) => {
+    const separator = entry.lastIndexOf("/");
+    if (separator <= 0) throw new Error(`Invalid trusted proxy CIDR: ${entry}`);
+    const address = entry.slice(0, separator);
+    const prefix = entry.slice(separator + 1);
+    const version = isIP(address);
+    const maxPrefix = version === 4 ? 32 : version === 6 ? 128 : 0;
+    if (!maxPrefix || prefix !== String(maxPrefix))
+      throw new Error(
+        `TRUSTED_PROXY_CIDRS must contain exact ingress hosts (/32 or /128): ${entry}`,
+      );
+    if (isDisallowedTrustedProxyAddress(address, version as 4 | 6))
+      throw new Error(`Disallowed trusted proxy address: ${entry}`);
+    return `${address}/${prefix}`;
+  });
+  if (new Set(normalized).size !== normalized.length)
+    throw new Error("TRUSTED_PROXY_CIDRS contains duplicates");
+}
+
 const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -105,8 +237,8 @@ const envSchema = z.object({
   ONION_TOKENS_PER_DAY: integerFromEnv(1000),
   ONION_TOKEN_BURST: integerFromEnv(20),
   ONION_TOKEN_BYTES: integerFromEnv(8192),
-  MAX_ACTIVE_NOTE_BYTES: positiveIntegerFromEnv,
-  MAX_ACTIVE_NOTE_COUNT: positiveIntegerFromEnv,
+  MAX_ACTIVE_NOTE_BYTES: safePositiveIntegerFromEnv,
+  MAX_ACTIVE_NOTE_COUNT: safePositiveIntegerFromEnv,
   ARGON2_MEMORY_KIB: integerFromEnv(65536),
   ARGON2_TIME_COST: integerFromEnv(3),
   ARGON2_PARALLELISM: integerFromEnv(1),
@@ -228,6 +360,10 @@ export function getEnv(): ShreditEnv {
       throw new Error(
         `Missing production configuration: ${missing.join(", ")}`,
       );
+    if (!loopback) {
+      validateProductionConnectionUrls(value.DATABASE_URL!, value.VALKEY_URL!);
+      validateProductionTrustedProxyCidrs(value.TRUSTED_PROXY_CIDRS);
+    }
     for (const key of policyUrlKeys)
       validatePolicyUrl(key, value[key], publicUrl, loopback);
     const positiveRuntimeValues: Array<keyof ShreditEnv> = [
@@ -246,6 +382,8 @@ export function getEnv(): ShreditEnv {
       "ARGON2_HASH_LENGTH",
       "ARGON2_MAX_CONCURRENCY",
       "ARGON2_VERIFY_TIMEOUT_MS",
+      "MAX_ACTIVE_NOTE_BYTES",
+      "MAX_ACTIVE_NOTE_COUNT",
     ];
     const invalidRuntimeValues = positiveRuntimeValues.filter((key) => {
       const candidate = value[key];
