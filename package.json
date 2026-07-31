@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "node --require ./scripts/inject-peer-address.cjs ./node_modules/next/dist/bin/next dev -p 3232",
     "build": "node --require ./scripts/windows-symlink-fallback.cjs ./node_modules/next/dist/bin/next build && node scripts/prepare-standalone.mjs",
-    "start": "node --env-file-if-exists=.env.local --require ./scripts/inject-peer-address.cjs ./.next/standalone/server.js",
+    "start": "node --env-file-if-exists=.env.local --require ./scripts/inject-peer-address.cjs ./scripts/start-standalone.cjs",
     "lint": "node scripts/lint.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

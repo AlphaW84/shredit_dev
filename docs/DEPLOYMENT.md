@@ -71,7 +71,7 @@ push to master -> Dokploy pulls Git -> Docker build -> release migrations/reconc
 
 Repository: `git@github.com:AlphaW84/shredit_dev.git`. Public source and commit links use `https://github.com/AlphaW84/shredit_dev` without the `.git` suffix.
 
-Configure the Dokploy application to build the repository with `Dockerfile` target `runner`, inject the exact commit as `NEXT_PUBLIC_GIT_COMMIT`, and expose port `3232`. Keep the Docker runtime command `node --require ./scripts/inject-peer-address.cjs server.js`; bypassing the preload removes the authenticated socket-peer boundary used by IP and country policy.
+Configure the Dokploy application to build the repository with `Dockerfile` target `runner`, inject the exact commit as `NEXT_PUBLIC_GIT_COMMIT`, and expose port `3232`. Keep the Docker runtime command `node --require ./scripts/inject-peer-address.cjs server.js`; bypassing the preload removes the authenticated socket-peer boundary used by IP and country policy. If Dokploy invokes the package `start` script instead, `scripts/start-standalone.cjs` pins the same `3232`/`0.0.0.0` bind while the package command retains the required preload.
 
 ## Release Commands
 
