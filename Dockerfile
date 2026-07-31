@@ -4,12 +4,15 @@ FROM node:22-bookworm-slim AS base
 
 ARG PNPM_VERSION=10.12.4
 ENV PNPM_HOME=/pnpm
+ENV COREPACK_HOME=/corepack
 ENV PATH=${PNPM_HOME}:${PATH}
 ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 
-RUN corepack enable \
-  && corepack prepare pnpm@${PNPM_VERSION} --activate
+RUN mkdir -p ${COREPACK_HOME} \
+  && corepack enable \
+  && corepack prepare pnpm@${PNPM_VERSION} --activate \
+  && chown -R node:node ${COREPACK_HOME}
 
 FROM base AS deps
 
