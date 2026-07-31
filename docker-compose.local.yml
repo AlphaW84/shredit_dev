@@ -1,0 +1,137 @@
+x-shredit-environment: &shredit-environment
+  NODE_ENV: production
+  SHREDIT_LOCAL_EPHEMERAL: "false"
+  PORT: 3232
+  HOSTNAME: 0.0.0.0
+  DATABASE_URL: postgresql://shredit:shredit@postgres:5432/shredit
+  VALKEY_URL: redis://valkey:6379
+  PUBLIC_BASE_URL: http://127.0.0.1:3232
+  ONION_URL: ""
+  GIT_REPOSITORY_URL: ""
+  NEXT_PUBLIC_GIT_COMMIT: local-compose
+  SECURITY_CONTACT: mailto:security@example.invalid
+  ABUSE_CONTACT: mailto:abuse@example.invalid
+  SECURITY_POLICY_URL: http://127.0.0.1:3232/security
+  ABUSE_POLICY_URL: http://127.0.0.1:3232/abuse
+  TURNSTILE_ENABLED: "false"
+  TURNSTILE_SITE_KEY: ""
+  TURNSTILE_SECRET_KEY: ""
+  TURNSTILE_BYPASS_COUNTRIES: CN
+  TURNSTILE_BYPASS_ONION: "true"
+  GEOIP_DB_PATH: ""
+  TRUSTED_PROXY_CIDRS: 127.0.0.1/32,::1/128
+  IP_HASH_SECRET: ${IP_HASH_SECRET:-local-compose-ip-hash-secret-0123456789abcdef0123456789abcdef}
+  POW_SECRET: ${POW_SECRET:-local-compose-pow-secret-0123456789abcdef0123456789abcdef}
+  IDEMPOTENCY_HMAC_SECRET: ${IDEMPOTENCY_HMAC_SECRET:-local-compose-idempotency-secret-0123456789abcdef0123456789abcdef}
+  POW_DIFFICULTY_BITS: 18
+  IDEMPOTENCY_TOMBSTONE_RETENTION_DAYS: 30
+  CREATE_LIMIT_PER_IP_HOUR: 10
+  CREATE_LIMIT_PER_IP_DAY: 50
+  PASSWORD_FAILURE_LIMIT_PER_NOTE_15M: 5
+  PASSWORD_FAILURE_LIMIT_PER_IP_HOUR: 50
+  ONION_TOKENS_PER_HOUR: 200
+  ONION_TOKENS_PER_DAY: 1000
+  ONION_TOKEN_BURST: 20
+  ONION_TOKEN_BYTES: 8192
+  MAX_ACTIVE_NOTE_BYTES: 104857600
+  MAX_ACTIVE_NOTE_COUNT: 10000
+  ARGON2_MEMORY_KIB: 65536
+  ARGON2_TIME_COST: 3
+  ARGON2_PARALLELISM: 1
+  ARGON2_HASH_LENGTH: 32
+  ARGON2_MAX_CONCURRENCY: 4
+  ARGON2_VERIFY_TIMEOUT_MS: 5000
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: shredit
+      POSTGRES_USER: shredit
+      POSTGRES_PASSWORD: shredit
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - shredit-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shredit -d shredit"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
+      - shredit-local
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    command: ["valkey-server", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - shredit-valkey-data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    networks:
+      - shredit-local
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: maintenance
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *shredit-environment
+    command:
+      ["sh", "-c", "pnpm run db:migrate && pnpm run db:reconcile-capacity"]
+    restart: "no"
+    networks:
+      - shredit-local
+
+  cleanup:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: maintenance
+    profiles: ["maintenance"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *shredit-environment
+    command: ["pnpm", "run", "cleanup:expired"]
+    restart: "no"
+    networks:
+      - shredit-local
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+      args:
+        NEXT_PUBLIC_GIT_COMMIT: "0000000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    environment: *shredit-environment
+    ports:
+      - "127.0.0.1:3232:3232"
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - shredit-local
+
+networks:
+  shredit-local:
+    driver: bridge
+
+volumes:
+  shredit-postgres-data:
+  shredit-valkey-data:

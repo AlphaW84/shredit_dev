@@ -1,0 +1,26 @@
+# Local dependencies and builds
+node_modules/
+.next/
+dist/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# Codex/QSite evidence, generated logs, and project-only SSH material
+/_codex/
+*.log
+
+# Local editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

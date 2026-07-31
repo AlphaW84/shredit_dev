@@ -1,0 +1,7 @@
+SHREDIT_PROJECT_SPEC.md
+_codex/
+.next/
+node_modules/
+coverage/
+playwright-report/
+test-results/
