@@ -2,13 +2,18 @@ import { getEnv } from "@/lib/config/env";
 
 const gitHostPattern = /(?:^|\.)github\.com$|(?:^|\.)gitlab\.com$|(?:^|\.)bitbucket\.org$/iu;
 
+export function isGitHostedUrl(value: string): boolean {
+  if (!value.startsWith("http")) return false;
+  try {
+    return gitHostPattern.test(new URL(value).hostname);
+  } catch {
+    return false;
+  }
+}
+
 function publicContact(value: string, linksEnabled: boolean): string {
   if (linksEnabled || !value.startsWith("http")) return value;
-  try {
-    return gitHostPattern.test(new URL(value).hostname) ? "" : value;
-  } catch {
-    return value;
-  }
+  return isGitHostedUrl(value) ? "" : value;
 }
 
 export interface PublicRuntimeConfig {

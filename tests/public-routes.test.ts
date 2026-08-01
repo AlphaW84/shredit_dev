@@ -46,4 +46,24 @@ describe("public security routes", () => {
     resetEnvForTests();
     expect(() => getEnv()).toThrow(/Invalid environment configuration/u);
   });
+
+  it("uses same-site security fallbacks when Git-hosted policy links are disabled", async () => {
+    vi.stubEnv(
+      "SECURITY_CONTACT",
+      "https://github.com/example/shredit/security/advisories/new",
+    );
+    vi.stubEnv(
+      "SECURITY_POLICY_URL",
+      "https://github.com/example/shredit/security",
+    );
+    vi.stubEnv("PUBLIC_REPOSITORY_LINKS_ENABLED", "false");
+    resetEnvForTests();
+
+    const response = getSecurityText();
+    const body = await response.text();
+
+    expect(body).not.toContain("github.com");
+    expect(body).toContain("Contact: https://shredit.dev/security");
+    expect(body).toContain("Policy: https://shredit.dev/security");
+  });
 });
