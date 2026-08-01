@@ -70,6 +70,7 @@ push to master -> Dokploy pulls Git -> Docker build -> release migrations/reconc
 ```
 
 Repository: `git@github.com:AlphaW84/shredit_dev.git`. Public source and commit links use `https://github.com/AlphaW84/shredit_dev` without the `.git` suffix.
+Set `PUBLIC_REPOSITORY_LINKS_ENABLED=false` while those public links must stay hidden. After the repository moves to its final account, update `GIT_REPOSITORY_URL` and set the flag to `true` to restore both source and commit links without a code change.
 
 Configure the Dokploy application to build the repository with `Dockerfile` target `runner`, inject the exact commit as `NEXT_PUBLIC_GIT_COMMIT`, and expose port `3232`. Keep the Docker runtime command `node --require ./scripts/inject-peer-address.cjs server.js`; bypassing the preload removes the authenticated socket-peer boundary used by IP and country policy. If Dokploy invokes the package `start` script instead, `scripts/start-standalone.cjs` pins the same `3232`/`0.0.0.0` bind while the package command retains the required preload.
 
@@ -110,7 +111,7 @@ manage backups.
 
 The complete variable template is in [`.env.example`](../.env.example). Production must provide at least `DATABASE_URL`, `VALKEY_URL`, `PUBLIC_BASE_URL`, `GIT_REPOSITORY_URL`, `NEXT_PUBLIC_GIT_COMMIT`, `SECURITY_CONTACT`, `SECURITY_POLICY_URL`, `ABUSE_CONTACT`, `ABUSE_POLICY_URL`, `IDEMPOTENCY_HMAC_SECRET`, `IP_HASH_SECRET`, `POW_SECRET`, and finite `MAX_ACTIVE_NOTE_BYTES`/`MAX_ACTIVE_NOTE_COUNT`. `ONION_URL` and Turnstile credentials are optional only when those features are disabled.
 
-All secrets remain server-only. `NEXT_PUBLIC_GIT_COMMIT` is public build metadata. Local secrets take precedence over global shell values, and production values must be injected by Dokploy rather than committed.
+All secrets remain server-only. `NEXT_PUBLIC_GIT_COMMIT` is public build metadata. `PUBLIC_REPOSITORY_LINKS_ENABLED` defaults to `false`; enable it only after `GIT_REPOSITORY_URL` points at the intended public account. Local secrets take precedence over global shell values, and production values must be injected by Dokploy rather than committed.
 
 ## Git And SSH
 

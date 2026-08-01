@@ -207,6 +207,7 @@ const envSchema = z.object({
   PUBLIC_BASE_URL: z.string().url().default("http://127.0.0.1:3232"),
   ONION_URL: optionalString,
   GIT_REPOSITORY_URL: optionalString,
+  PUBLIC_REPOSITORY_LINKS_ENABLED: booleanFromEnv.default(false),
   NEXT_PUBLIC_GIT_COMMIT: z.string().default("local"),
   SECURITY_CONTACT: publicContactUri.default("mailto:security@example.invalid"),
   ABUSE_CONTACT: publicContactUri.default("mailto:abuse@example.invalid"),

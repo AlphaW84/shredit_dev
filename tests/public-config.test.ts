@@ -7,6 +7,7 @@ const KEYS = [
   "PUBLIC_BASE_URL",
   "ONION_URL",
   "GIT_REPOSITORY_URL",
+  "PUBLIC_REPOSITORY_LINKS_ENABLED",
   "NEXT_PUBLIC_GIT_COMMIT",
   "SHREDIT_LOCAL_EPHEMERAL",
   "IDEMPOTENCY_HMAC_SECRET",
@@ -36,6 +37,7 @@ describe("public runtime configuration", () => {
     process.env.PUBLIC_BASE_URL = "https://shredit.dev";
     process.env.ONION_URL = "http://shreditpublicconfigtest.onion";
     process.env.GIT_REPOSITORY_URL = "https://github.com/example/shredit/";
+    process.env.PUBLIC_REPOSITORY_LINKS_ENABLED = "true";
     process.env.NEXT_PUBLIC_GIT_COMMIT = "0123456789abcdef";
     resetEnvForTests();
 
@@ -45,6 +47,22 @@ describe("public runtime configuration", () => {
       repositoryUrl: "https://github.com/example/shredit",
       securityContact: "mailto:security@example.invalid",
       abuseContact: "mailto:abuse@example.invalid",
+      commit: "0123456789abcdef",
+    });
+  });
+
+  it("hides repository metadata while public repository links are disabled", () => {
+    Object.assign(process.env, {
+      NODE_ENV: "test",
+      PUBLIC_BASE_URL: "https://shredit.dev",
+      GIT_REPOSITORY_URL: "https://github.com/example/shredit",
+      PUBLIC_REPOSITORY_LINKS_ENABLED: "false",
+      NEXT_PUBLIC_GIT_COMMIT: "0123456789abcdef",
+    });
+    resetEnvForTests();
+
+    expect(getPublicRuntimeConfig()).toMatchObject({
+      repositoryUrl: undefined,
       commit: "0123456789abcdef",
     });
   });
