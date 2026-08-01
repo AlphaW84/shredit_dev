@@ -1,5 +1,16 @@
 import { getEnv } from "@/lib/config/env";
 
+const gitHostPattern = /(?:^|\.)github\.com$|(?:^|\.)gitlab\.com$|(?:^|\.)bitbucket\.org$/iu;
+
+function publicContact(value: string, linksEnabled: boolean): string {
+  if (linksEnabled || !value.startsWith("http")) return value;
+  try {
+    return gitHostPattern.test(new URL(value).hostname) ? "" : value;
+  } catch {
+    return value;
+  }
+}
+
 export interface PublicRuntimeConfig {
   clearnetUrl: string;
   onionUrl?: string;
@@ -17,8 +28,14 @@ export function getPublicRuntimeConfig(): PublicRuntimeConfig {
     repositoryUrl: env.PUBLIC_REPOSITORY_LINKS_ENABLED
       ? env.GIT_REPOSITORY_URL?.replace(/\/$/u, "")
       : undefined,
-    securityContact: env.SECURITY_CONTACT,
-    abuseContact: env.ABUSE_CONTACT,
+    securityContact: publicContact(
+      env.SECURITY_CONTACT,
+      env.PUBLIC_REPOSITORY_LINKS_ENABLED,
+    ),
+    abuseContact: publicContact(
+      env.ABUSE_CONTACT,
+      env.PUBLIC_REPOSITORY_LINKS_ENABLED,
+    ),
     commit: env.NEXT_PUBLIC_GIT_COMMIT,
   };
 }

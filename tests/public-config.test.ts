@@ -67,6 +67,22 @@ describe("public runtime configuration", () => {
     });
   });
 
+  it("hides Git-hosted contact links with repository links disabled", () => {
+    Object.assign(process.env, {
+      NODE_ENV: "test",
+      PUBLIC_BASE_URL: "https://shredit.dev",
+      SECURITY_CONTACT: "https://github.com/example/shredit/security/advisories/new",
+      ABUSE_CONTACT: "https://github.com/example/shredit/issues/new",
+      PUBLIC_REPOSITORY_LINKS_ENABLED: "false",
+    });
+    resetEnvForTests();
+
+    expect(getPublicRuntimeConfig()).toMatchObject({
+      securityContact: "",
+      abuseContact: "",
+    });
+  });
+
   it("rejects non-onion schemes and repository credentials", () => {
     Object.assign(process.env, { NODE_ENV: "test" });
     process.env.PUBLIC_BASE_URL = "https://shredit.dev";
