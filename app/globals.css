@@ -348,12 +348,10 @@ ul {
 }
 
 .brand-symbol {
-  display: grid;
+  display: block;
   width: 28px;
   height: 28px;
   flex: 0 0 auto;
-  place-items: center;
-  color: var(--color-action);
 }
 
 .brand-copy {
@@ -2178,6 +2176,7 @@ ul {
 
   .brand-symbol {
     width: 24px;
+    height: 24px;
   }
 
   .header-actions {

@@ -279,6 +279,8 @@ describe("UI localization contract", () => {
       </ShreditShell>,
     );
     expect(markup).toContain("Read once. Shred forever.");
+    expect(markup).toContain('class="brand-symbol"');
+    expect(markup).toContain('src="/shredit-mark.svg"');
     expect(markup).toContain("Tor mirror");
     expect(markup).not.toContain("advanced traffic correlation");
   });

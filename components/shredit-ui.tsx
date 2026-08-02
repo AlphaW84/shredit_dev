@@ -1933,9 +1933,14 @@ export function ShreditShell({
       </a>
       <header className="site-header">
         <a href="/" className="brand-lockup">
-          <span className="brand-symbol" aria-hidden="true">
-            <Trash2 size={17} />
-          </span>
+          <img
+            className="brand-symbol"
+            src="/shredit-mark.svg"
+            width="28"
+            height="28"
+            alt=""
+            aria-hidden="true"
+          />
           <span className="brand-copy">
             <span className="brand-wordmark">Shredit</span>
             <span className="brand-slogan">/ {copy.brandSlogan}</span>

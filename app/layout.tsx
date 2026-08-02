@@ -7,6 +7,21 @@ import { ThemeProvider } from "@/lib/theme-provider";
 export const metadata: Metadata = {
   title: "Shredit - Read once. Shred forever.",
   description: "Encrypted one-time plaintext notes. No account required.",
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", type: "image/x-icon", sizes: "16x16 32x32" },
+      { url: "/shredit-mark.svg", type: "image/svg+xml", sizes: "any" },
+    ],
+    shortcut: "/favicon.ico",
+    apple: [
+      {
+        url: "/icons/shredit-180.png",
+        type: "image/png",
+        sizes: "180x180",
+      },
+    ],
+  },
   robots: { index: false, follow: false, noarchive: true, nosnippet: true },
 };
 
