@@ -1,10 +1,14 @@
+import { timingSafeEqual } from "node:crypto";
 import { BlockList, isIP } from "node:net";
 import { getEnv, type RequestSurface } from "@/lib/config/env";
 
 const UNKNOWN_IP = "unknown-ip";
 const MAX_FORWARDED_HOPS = 32;
 const INTERNAL_PEER_HEADER = "x-shredit-runtime-peer";
+const INGRESS_AUTH_HEADER = "x-shredit-ingress-auth";
 const TRUSTED_SURFACE_HEADER = "x-shredit-surface";
+
+type IngressTrustMode = "token" | "legacy-peer";
 
 interface TrustedProxyPolicy {
   blockList: BlockList;
@@ -94,6 +98,29 @@ function isTrustedProxy(policy: TrustedProxyPolicy, address: string): boolean {
   );
 }
 
+function ingressTokenMatches(request: Request): boolean {
+  const expected = getEnv().INGRESS_AUTH_TOKEN;
+  if (!expected) return false;
+  const supplied = request.headers.get(INGRESS_AUTH_HEADER);
+  if (supplied === null) return false;
+  const expectedBytes = Buffer.from(expected, "utf8");
+  const suppliedBytes = Buffer.from(supplied, "utf8");
+  if (expectedBytes.length !== suppliedBytes.length) return false;
+  return timingSafeEqual(expectedBytes, suppliedBytes);
+}
+
+function trustedIngressMode(
+  request: Request,
+  peer: string | null,
+  policy: TrustedProxyPolicy | null,
+): IngressTrustMode | null {
+  if (getEnv().INGRESS_AUTH_TOKEN)
+    return ingressTokenMatches(request) ? "token" : null;
+  if (peer && policy?.configured && isTrustedProxy(policy, peer))
+    return "legacy-peer";
+  return null;
+}
+
 function actualPeerIp(request: Request): string | null {
   return normalizeIp(request.headers.get(INTERNAL_PEER_HEADER));
 }
@@ -109,24 +136,39 @@ function forwardedChain(value: string): string[] | null {
 
 function resolveClientContext(request: Request): ClientContext {
   const peer = actualPeerIp(request);
-  if (!peer) return { clientIp: UNKNOWN_IP, forwardedHeadersTrusted: false };
-
   const policy = trustedProxyPolicy();
-  if (!policy || !policy.configured || !isTrustedProxy(policy, peer)) {
-    return { clientIp: peer, forwardedHeadersTrusted: false };
-  }
+  const ingressMode = trustedIngressMode(request, peer, policy);
+  if (!ingressMode)
+    return {
+      clientIp: peer ?? UNKNOWN_IP,
+      forwardedHeadersTrusted: false,
+    };
+  if (!policy?.configured)
+    return { clientIp: UNKNOWN_IP, forwardedHeadersTrusted: false };
 
   const forwardedFor = request.headers.get("x-forwarded-for");
   if (forwardedFor !== null) {
     const chain = forwardedChain(forwardedFor);
     if (!chain) return { clientIp: UNKNOWN_IP, forwardedHeadersTrusted: false };
+    let trustedUpstreamSeen = ingressMode === "legacy-peer";
     for (let index = chain.length - 1; index >= 0; index -= 1) {
       const hop = chain[index];
-      if (!isTrustedProxy(policy, hop))
-        return { clientIp: hop, forwardedHeadersTrusted: true };
+      if (isTrustedProxy(policy, hop)) {
+        trustedUpstreamSeen = true;
+        continue;
+      }
+      if (!trustedUpstreamSeen)
+        return { clientIp: UNKNOWN_IP, forwardedHeadersTrusted: false };
+      return { clientIp: hop, forwardedHeadersTrusted: true };
     }
     return { clientIp: UNKNOWN_IP, forwardedHeadersTrusted: false };
   }
+
+  // Token-authenticated ingress still needs a canonical X-Forwarded-For chain
+  // with at least one configured upstream hop. Otherwise direct-origin clients
+  // could spoof Cloudflare/Vercel identity and country fallback headers.
+  if (ingressMode === "token")
+    return { clientIp: UNKNOWN_IP, forwardedHeadersTrusted: false };
 
   const fallbackHeaders = ["cf-connecting-ip", "x-real-ip"]
     .map((name) => request.headers.get(name))
@@ -161,15 +203,14 @@ export function trustedCountry(request: Request): string | null {
 }
 
 /**
- * Read the reverse-proxy-selected public surface only from a verified ingress
- * peer. The proxy must overwrite this header after selecting its vhost.
+ * Read the reverse-proxy-selected public surface only from an authenticated
+ * ingress. The proxy must overwrite both internal headers after selecting its
+ * vhost; configured token authentication cannot fall back to peer CIDRs.
  */
 export function trustedIngressSurface(request: Request): RequestSurface | null {
   const peer = actualPeerIp(request);
-  if (!peer) return null;
   const policy = trustedProxyPolicy();
-  if (!policy || !policy.configured || !isTrustedProxy(policy, peer))
-    return null;
+  if (!trustedIngressMode(request, peer, policy)) return null;
   const surface = request.headers.get(TRUSTED_SURFACE_HEADER);
   return surface === "clearnet" || surface === "onion" ? surface : null;
 }

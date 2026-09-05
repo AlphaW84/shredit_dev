@@ -6,6 +6,9 @@ import {
   surfaceForTarget,
 } from "@/lib/config/env";
 import { trustedIngressSurface } from "@/lib/anti-abuse/request-context";
+import { GET as getAntiAbusePolicy } from "@/app/api/v1/anti-abuse/policy/route";
+
+const INGRESS_AUTH_TOKEN = "c2hyZWRpdC1pbmdyZXNzLXRlc3QtdG9rZW4tMDAwMDE";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -32,6 +35,7 @@ function configureProduction(): void {
     MAX_ACTIVE_NOTE_BYTES: "104857600",
     MAX_ACTIVE_NOTE_COUNT: "10000",
     TURNSTILE_ENABLED: "false",
+    INGRESS_AUTH_TOKEN,
     TRUSTED_PROXY_CIDRS: "10.0.0.5/32",
   };
   for (const [key, value] of Object.entries(values)) vi.stubEnv(key, value);
@@ -55,6 +59,11 @@ describe("fail-closed environment validation", () => {
 
     configureProduction();
     vi.stubEnv("POW_SECRET", "ip-hashing-0123456789abcdef-unique");
+    resetEnvForTests();
+    expect(() => getEnv()).toThrow(/must be distinct/u);
+
+    configureProduction();
+    vi.stubEnv("IP_HASH_SECRET", INGRESS_AUTH_TOKEN);
     resetEnvForTests();
     expect(() => getEnv()).toThrow(/must be distinct/u);
 
@@ -123,7 +132,32 @@ describe("fail-closed environment validation", () => {
     expect(() => getEnv()).toThrow(/MAX_ACTIVE_NOTE_BYTES/u);
   });
 
-  it("requires an explicit trusted ingress range outside loopback", () => {
+  it("requires an ingress authentication token outside loopback", () => {
+    configureProduction();
+    vi.stubEnv("INGRESS_AUTH_TOKEN", "");
+    resetEnvForTests();
+
+    expect(() => getEnv()).toThrow(/INGRESS_AUTH_TOKEN/u);
+  });
+
+  it("requires a canonical 32-byte base64url ingress token", () => {
+    configureProduction();
+    vi.stubEnv("INGRESS_AUTH_TOKEN", "too-short");
+    resetEnvForTests();
+
+    expect(() => getEnv()).toThrow(/32 bytes encoded as unpadded base64url/u);
+
+    configureProduction();
+    vi.stubEnv(
+      "INGRESS_AUTH_TOKEN",
+      `${INGRESS_AUTH_TOKEN.slice(0, -1)}B`,
+    );
+    resetEnvForTests();
+
+    expect(() => getEnv()).toThrow(/32 bytes encoded as unpadded base64url/u);
+  });
+
+  it("requires explicit trusted upstream ranges outside loopback", () => {
     configureProduction();
     vi.stubEnv("TRUSTED_PROXY_CIDRS", "");
     resetEnvForTests();
@@ -131,11 +165,11 @@ describe("fail-closed environment validation", () => {
     expect(() => getEnv()).toThrow(/TRUSTED_PROXY_CIDRS/u);
   });
 
-  it("requires exact, safe trusted proxy host addresses in production", () => {
+  it("accepts controlled proxy networks and rejects unsafe CIDRs", () => {
     configureProduction();
-    vi.stubEnv("TRUSTED_PROXY_CIDRS", "10.0.0.0/8");
+    vi.stubEnv("TRUSTED_PROXY_CIDRS", "173.245.48.0/20,2400:cb00::/32");
     resetEnvForTests();
-    expect(() => getEnv()).toThrow(/exact ingress hosts/u);
+    expect(() => getEnv()).not.toThrow();
 
     configureProduction();
     vi.stubEnv("TRUSTED_PROXY_CIDRS", "127.0.0.1/32");
@@ -143,9 +177,9 @@ describe("fail-closed environment validation", () => {
     expect(() => getEnv()).toThrow(/Disallowed trusted proxy address/u);
 
     configureProduction();
-    vi.stubEnv("TRUSTED_PROXY_CIDRS", "10.0.0.5/32,2001:db8::5/128");
+    vi.stubEnv("TRUSTED_PROXY_CIDRS", "10.0.0.0/0");
     resetEnvForTests();
-    expect(() => getEnv()).not.toThrow();
+    expect(() => getEnv()).toThrow(/Invalid trusted proxy CIDR/u);
   });
 
   it.each(["SECURITY_POLICY_URL", "ABUSE_POLICY_URL"] as const)(
@@ -195,6 +229,7 @@ describe("fail-closed environment validation", () => {
     vi.stubEnv("GIT_REPOSITORY_URL", "");
     vi.stubEnv("SECURITY_POLICY_URL", "http://127.0.0.1:3232/security");
     vi.stubEnv("ABUSE_POLICY_URL", "http://127.0.0.1:3232/abuse");
+    vi.stubEnv("INGRESS_AUTH_TOKEN", "");
     resetEnvForTests();
 
     expect(() => getEnv()).not.toThrow();
@@ -233,6 +268,7 @@ describe("fail-closed environment validation", () => {
         headers: {
           Origin: "http://shredit-surface-test.onion",
           "x-shredit-runtime-peer": "203.0.113.5",
+          "x-shredit-ingress-auth": "invalid",
           "x-shredit-surface": "onion",
         },
       },
@@ -240,7 +276,8 @@ describe("fail-closed environment validation", () => {
     const trusted = new Request("https://shredit.dev/api/v1/notes", {
       headers: {
         Origin: "http://shredit-surface-test.onion",
-        "x-shredit-runtime-peer": "10.0.0.5",
+        "x-shredit-runtime-peer": "172.19.0.37",
+        "x-shredit-ingress-auth": INGRESS_AUTH_TOKEN,
         "x-shredit-surface": "onion",
       },
     });
@@ -255,5 +292,41 @@ describe("fail-closed environment validation", () => {
     expect(surfaceForRequest(trusted, trustedIngressSurface(trusted))).toBe(
       "onion",
     );
+  });
+
+  it("gates the production anti-abuse policy on ingress authentication", async () => {
+    configureProduction();
+    vi.stubEnv("TRUSTED_PROXY_CIDRS", "173.245.48.0/20");
+    resetEnvForTests();
+
+    const headers = {
+      "x-forwarded-for": "198.51.100.44, 173.245.48.10",
+      "x-shredit-surface": "clearnet",
+    };
+    const missing = getAntiAbusePolicy(
+      new Request("https://shredit.dev/api/v1/anti-abuse/policy", { headers }),
+    );
+    const wrong = getAntiAbusePolicy(
+      new Request("https://shredit.dev/api/v1/anti-abuse/policy", {
+        headers: { ...headers, "x-shredit-ingress-auth": "invalid" },
+      }),
+    );
+    const accepted = getAntiAbusePolicy(
+      new Request("https://shredit.dev/api/v1/anti-abuse/policy", {
+        headers: {
+          ...headers,
+          "x-shredit-ingress-auth": INGRESS_AUTH_TOKEN,
+        },
+      }),
+    );
+
+    expect(missing.status).toBe(403);
+    expect(wrong.status).toBe(403);
+    expect(accepted.status).toBe(200);
+    await expect(accepted.json()).resolves.toMatchObject({
+      surface: "clearnet",
+      turnstileRequired: false,
+      powRequired: false,
+    });
   });
 });

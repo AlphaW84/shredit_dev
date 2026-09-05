@@ -4,6 +4,7 @@ import { z } from "zod";
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 const OVERLAY_VALKEY_HOSTNAME = "shredit-valkey";
 const DATABASE_TLS_MODES = new Set(["require", "verify-ca", "verify-full"]);
+const INGRESS_AUTH_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 
 const booleanFromEnv = z.preprocess((value) => {
   if (typeof value !== "string") return value;
@@ -186,16 +187,37 @@ function validateProductionTrustedProxyCidrs(value: string): void {
     const prefix = entry.slice(separator + 1);
     const version = isIP(address);
     const maxPrefix = version === 4 ? 32 : version === 6 ? 128 : 0;
-    if (!maxPrefix || prefix !== String(maxPrefix))
-      throw new Error(
-        `TRUSTED_PROXY_CIDRS must contain exact ingress hosts (/32 or /128): ${entry}`,
-      );
+    const prefixNumber = Number(prefix);
+    if (
+      !maxPrefix ||
+      !Number.isInteger(prefixNumber) ||
+      prefixNumber < 1 ||
+      prefixNumber > maxPrefix ||
+      prefix !== String(prefixNumber)
+    )
+      throw new Error(`Invalid trusted proxy CIDR: ${entry}`);
     if (isDisallowedTrustedProxyAddress(address, version as 4 | 6))
       throw new Error(`Disallowed trusted proxy address: ${entry}`);
     return `${address}/${prefix}`;
   });
   if (new Set(normalized).size !== normalized.length)
     throw new Error("TRUSTED_PROXY_CIDRS contains duplicates");
+}
+
+function validateIngressAuthToken(value: string): void {
+  if (!INGRESS_AUTH_TOKEN_PATTERN.test(value))
+    throw new Error(
+      "INGRESS_AUTH_TOKEN must be exactly 32 bytes encoded as unpadded base64url",
+    );
+  try {
+    const decoded = Buffer.from(value, "base64url");
+    if (decoded.length !== 32 || decoded.toString("base64url") !== value)
+      throw new Error("non-canonical ingress token");
+  } catch {
+    throw new Error(
+      "INGRESS_AUTH_TOKEN must be exactly 32 bytes encoded as unpadded base64url",
+    );
+  }
 }
 
 const envSchema = z.object({
@@ -222,6 +244,7 @@ const envSchema = z.object({
   TURNSTILE_BYPASS_COUNTRIES: z.string().default("CN"),
   TURNSTILE_BYPASS_ONION: booleanFromEnv.default(true),
   GEOIP_DB_PATH: optionalString,
+  INGRESS_AUTH_TOKEN: optionalString,
   TRUSTED_PROXY_CIDRS: z.string().default(""),
   IP_HASH_SECRET: z.string().default("dev-ip-hash-secret-change-me"),
   POW_SECRET: z.string().default("dev-pow-secret-change-me"),
@@ -320,6 +343,8 @@ export function getEnv(): ShreditEnv {
         "SHREDIT_LOCAL_EPHEMERAL is allowed only for a loopback PUBLIC_BASE_URL",
       );
   }
+  if (value.INGRESS_AUTH_TOKEN)
+    validateIngressAuthToken(value.INGRESS_AUTH_TOKEN);
   if (value.NODE_ENV === "production") {
     const required: Array<keyof ShreditEnv> = [
       "DATABASE_URL",
@@ -345,6 +370,8 @@ export function getEnv(): ShreditEnv {
     });
     if (!loopback && !value.GIT_REPOSITORY_URL)
       missing.push("GIT_REPOSITORY_URL");
+    if (!loopback && !value.INGRESS_AUTH_TOKEN)
+      missing.push("INGRESS_AUTH_TOKEN");
     if (!loopback && !value.TRUSTED_PROXY_CIDRS.trim())
       missing.push("TRUSTED_PROXY_CIDRS");
     if (!value.MAX_ACTIVE_NOTE_BYTES || value.MAX_ACTIVE_NOTE_BYTES <= 0)
@@ -422,9 +449,13 @@ export function getEnv(): ShreditEnv {
           `Weak production secret configuration: ${weakSecrets.join(", ")}`,
         );
       if (
-        new Set(secretKeys.map((key) => value[key])).size !== secretKeys.length
+        new Set([
+          ...secretKeys.map((key) => value[key]),
+          ...(value.INGRESS_AUTH_TOKEN ? [value.INGRESS_AUTH_TOKEN] : []),
+        ]).size !==
+        secretKeys.length + (value.INGRESS_AUTH_TOKEN ? 1 : 0)
       ) {
-        throw new Error("Production HMAC and PoW secrets must be distinct");
+        throw new Error("Production security secrets must be distinct");
       }
     }
     if (publicUrl.protocol !== "https:" && !loopback)

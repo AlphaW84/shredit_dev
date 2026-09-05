@@ -27,6 +27,7 @@ Allow a reasonable period for triage before public disclosure. Do not test again
 - Opening is an explicit one-time consume operation. A successful server response deletes the active note atomically. Browser crashes, malformed keys, or local decryption failures after consume can make a note unavailable permanently.
 - The optional password is a server-side Argon2id access gate and is not a second encryption key. Share the password through a separate channel from the link.
 - Turnstile, CN bypass, onion PoW, rate limits, and quotas reduce abuse; they are not confidentiality controls. Valkey degradation fails closed for operations that require anti-abuse state while safe PostgreSQL-backed reads remain available.
+- Production surface headers are accepted only after constant-time verification of a server-only ingress token. Forwarded client identity and country also require a canonical chain through configured trusted upstream proxy ranges; missing evidence falls back to unknown identity/country rather than trusting browser-supplied headers.
 - The onion mirror can substantially reduce network-level exposure through Tor, but cannot protect against a compromised device, identifying content, recipient actions, modified client code, or advanced traffic correlation.
 
 ## Out Of Scope

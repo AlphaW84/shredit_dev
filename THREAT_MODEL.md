@@ -8,7 +8,7 @@ This threat model covers the Shredit v1.1 MVP: public creation of one-time, plai
 - The 256-bit AES-GCM note key in the URL fragment.
 - Encrypted payload, IV, expiry, password hash, idempotency tombstones, and capacity counters.
 - User intent that a note is delivered at most once.
-- Server secrets: `DATABASE_URL`, `VALKEY_URL`, `IDEMPOTENCY_HMAC_SECRET`, `IP_HASH_SECRET`, `POW_SECRET`, and Turnstile secret.
+- Server secrets: `DATABASE_URL`, `VALKEY_URL`, `INGRESS_AUTH_TOKEN`, `IDEMPOTENCY_HMAC_SECRET`, `IP_HASH_SECRET`, `POW_SECRET`, and Turnstile secret.
 - Public configuration and exact build commit shown in the footer.
 - Availability and quota state, including the distinction between safe reads and anti-abuse-dependent mutations.
 
@@ -21,10 +21,10 @@ Browser crypto boundary
        | HTTPS/or authenticated onion transport                v
        +-------------------------------> Next.js API -> PostgreSQL (ciphertext)
                                                    -> Valkey (short-lived anti-abuse state)
-Reverse proxy/Dokploy config -> trusted origin/IP/GeoIP policy and redacted logs
+Reverse proxy/Dokploy config -> authenticated ingress, trusted origin/IP/GeoIP policy, and redacted logs
 ```
 
-The browser is not trusted for policy decisions, body size, origin, password validation, expiry, or anti-abuse success. The server is intentionally blind to the AES key but is trusted to enforce access gates, one-time deletion, quotas, and protocol validation. The reverse proxy is trusted only when its CIDRs and header contract are explicitly configured.
+The browser is not trusted for policy decisions, body size, origin, password validation, expiry, or anti-abuse success. The server is intentionally blind to the AES key but is trusted to enforce access gates, one-time deletion, quotas, and protocol validation. The final reverse proxy is authenticated with a server-only ingress token; upstream forwarding and country headers are trusted only through configured proxy CIDRs and the documented canonicalization contract.
 
 ## Adversaries And Abuse Cases
 
@@ -40,7 +40,7 @@ The browser is not trusted for policy decisions, body size, origin, password val
 | Note-ID collision                          | Overwrite or wrong payload                       | Unique constraints, no upsert, regenerate ID/key/idempotency once                       |
 | Capacity race or ledger drift              | Storage exhaustion or accidental data loss       | Singleton capacity lock, atomic counters, bounded cleanup, explicit reconciliation      |
 | Valkey outage                              | Abuse bypass or inconsistent throttling          | Fail closed for create/protected open/PoW; keep safe PostgreSQL reads routable          |
-| Spoofed proxy/IP/country headers           | Rate-limit or CN/Turnstile bypass                | Trusted proxy CIDRs, HMAC IP keys, trusted GeoIP only, unknown-country fallback         |
+| Spoofed ingress/surface/IP/country headers | Surface, rate-limit, or CN/Turnstile bypass      | Constant-time ingress token, header overwrite, trusted upstream CIDRs, unknown fallback |
 | Onion third-party request                  | Correlation or unexpected script execution       | Onion CSP excludes Cloudflare/third parties, no analytics/fonts/images                  |
 | Cache or link-preview storage              | Disclosure/consume side effects                  | `Cache-Control: no-store`, dynamic note/API/health routes, proxy bypass                 |
 | Log/telemetry leakage                      | Secret or content exposure                       | Route-template logs and redaction of IDs, bodies, URLs, keys, passwords, IPs            |
@@ -60,9 +60,10 @@ The browser is not trusted for policy decisions, body size, origin, password val
 7. Capacity reservation and deletion/counter updates are atomic and use one lock order.
 8. Onion responses load no third-party resources; note/API/health routes are uncached.
 9. Production configuration fails closed when mandatory secrets, origins, public commit metadata, or finite capacity limits are absent.
+10. A configured ingress token is mandatory for every trusted surface decision; legacy CIDR trust cannot bypass a missing or incorrect token.
 
 ## Residual Risk And Operator Responsibilities
 
-The service cannot recover a consumed note, detect screenshots, prevent a recipient from copying plaintext, or guarantee anonymity. Operators must set realistic capacity limits, trusted proxy CIDRs, GeoIP behavior, onion provisioning, contact addresses, legal copy, and the final name/trademark decision. Production PostgreSQL backups are intentionally an operator policy and are not managed by the application; the chosen note-database policy disables backups.
+The service cannot recover a consumed note, detect screenshots, prevent a recipient from copying plaintext, or guarantee anonymity. Operators must set realistic capacity limits, provision the ingress token through a non-label secret path, maintain trusted upstream proxy CIDRs and GeoIP behavior, protect the origin from bypass where practical, provision onion transport, and complete contact/legal/name decisions. Production PostgreSQL backups are intentionally an operator policy and are not managed by the application; the chosen note-database policy disables backups.
 
 Security review must use local synthetic data. Production deploy, root/server access, database access, remote pushes, and Dokploy webhook calls require separate explicit authorization.

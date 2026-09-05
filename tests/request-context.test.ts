@@ -9,15 +9,19 @@ import {
 import { resetEnvForTests } from "@/lib/config/env";
 
 const ENV_KEYS = [
+  "INGRESS_AUTH_TOKEN",
   "TRUSTED_PROXY_CIDRS",
   "TURNSTILE_ENABLED",
   "TURNSTILE_BYPASS_COUNTRIES",
 ] as const;
+const INGRESS_AUTH_TOKEN = "c2hyZWRpdC1pbmdyZXNzLXRlc3QtdG9rZW4tMDAwMDE";
 const originalEnv = new Map(
   ENV_KEYS.map((key) => [key, process.env[key]] as const),
 );
 
-function configure(cidrs: string): void {
+function configure(cidrs: string, ingressAuthToken?: string): void {
+  if (ingressAuthToken === undefined) delete process.env.INGRESS_AUTH_TOKEN;
+  else process.env.INGRESS_AUTH_TOKEN = ingressAuthToken;
   process.env.TRUSTED_PROXY_CIDRS = cidrs;
   process.env.TURNSTILE_ENABLED = "true";
   process.env.TURNSTILE_BYPASS_COUNTRIES = "CN";
@@ -137,5 +141,59 @@ describe("trusted proxy request context", () => {
     expect(trustedIngressSurface(trusted)).toBe("onion");
     expect(trustedIngressSurface(direct)).toBeNull();
     expect(trustedIngressSurface(invalid)).toBeNull();
+  });
+
+  it("authenticates a dynamic final ingress with the configured token", () => {
+    configure("173.245.48.0/20", INGRESS_AUTH_TOKEN);
+    const request = requestWithPeer(
+      {
+        "x-forwarded-for": "198.51.100.44, 173.245.48.10",
+        "cf-ipcountry": "CN",
+        "x-shredit-ingress-auth": INGRESS_AUTH_TOKEN,
+        "x-shredit-surface": "clearnet",
+      },
+      "172.19.0.37",
+    );
+
+    expect(trustedIngressSurface(request)).toBe("clearnet");
+    expect(trustedClientIp(request)).toBe("198.51.100.44");
+    expect(trustedCountry(request)).toBe("CN");
+    expect(requiresTurnstile(request, "clearnet")).toBe(false);
+  });
+
+  it("does not let a trusted legacy peer bypass a configured token", () => {
+    configure("10.0.0.0/8", INGRESS_AUTH_TOKEN);
+    const missing = requestWithPeer(
+      { "x-shredit-surface": "onion" },
+      "10.0.0.5",
+    );
+    const wrong = requestWithPeer(
+      {
+        "x-shredit-ingress-auth": `${INGRESS_AUTH_TOKEN.slice(0, -1)}A`,
+        "x-shredit-surface": "onion",
+      },
+      "10.0.0.5",
+    );
+
+    expect(trustedIngressSurface(missing)).toBeNull();
+    expect(trustedIngressSurface(wrong)).toBeNull();
+  });
+
+  it("rejects forwarded identity without a trusted upstream hop", () => {
+    configure("173.245.48.0/20", INGRESS_AUTH_TOKEN);
+    const request = requestWithPeer(
+      {
+        "x-forwarded-for": "198.51.100.44",
+        "cf-connecting-ip": "198.51.100.44",
+        "cf-ipcountry": "CN",
+        "x-shredit-ingress-auth": INGRESS_AUTH_TOKEN,
+        "x-shredit-surface": "clearnet",
+      },
+      "172.19.0.37",
+    );
+
+    expect(isUnknownClientIp(trustedClientIp(request))).toBe(true);
+    expect(trustedCountry(request)).toBeNull();
+    expect(requiresTurnstile(request, "clearnet")).toBe(true);
   });
 });

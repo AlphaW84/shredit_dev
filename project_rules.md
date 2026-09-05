@@ -89,7 +89,9 @@ Use the official 21st.dev MCP only for focused component evidence (`search`, `ge
 - Run `pnpm run db:migrate` and `pnpm run db:reconcile-capacity` once as release commands before traffic. Schedule `pnpm run cleanup:expired` every five minutes under a single-worker lock.
 - Runtime is a standalone Next.js server from the multi-stage `node:22-bookworm-slim` image, non-root, port `3232`. Health checks use `/health/live`; readiness uses `/health/ready` and permits a non-sensitive degraded Valkey state.
 - Production startup/readiness fails closed when required configuration or finite capacity limits are absent. Production secrets are injected by Dokploy, never committed.
+- Non-loopback production requires a 32-byte canonical base64url `INGRESS_AUTH_TOKEN`. Traefik must overwrite inbound `X-Shredit-Ingress-Auth` and `X-Shredit-Surface` from a secret-backed dynamic configuration; never put the token in Docker labels. `TRUSTED_PROXY_CIDRS` identifies controlled upstream forwarding ranges (for example Cloudflare's published CIDRs), not resolved Cloudflare edge addresses or an ephemeral application-container IP.
 - Never upload files directly to production. Never invoke a Dokploy webhook or production deploy from this task. Production deployment requires a separate explicit user authorization.
+- The designated Dokploy consultation task is `codex://threads/019e8e32-535b-7c12-915d-28b61affc4ae`. Use it primarily for read-only inspection and consultation about deployment configuration, runtime health, logs, and release state. Do not request deploys, restarts, configuration or credential changes, database writes, or other state-changing operations unless the user separately and explicitly authorizes that exact operation in the current conversation. Keep requests scoped and redact secrets and sensitive operational data.
 - Do not use the default SSH identity. Use a dedicated project key with `IdentitiesOnly=yes` and an explicit `IdentityFile` if Git access is later requested.
 
 ## QA Environment
@@ -108,7 +110,7 @@ Browser QA uses external Edge/Chrome/Playwright only. Do not use Codex Browser U
 
 ## Launch-Only Items
 
-These are owner/operator gates, not reasons to weaken or expand the implementation: Shredit/Shred-it name and trademark review; production capacity values; trusted proxy CIDRs and GeoIP database; onion provisioning; native EN/zh-CN copy review; and final Privacy, Terms, Abuse, and Security public copy.
+These are owner/operator gates, not reasons to weaken or expand the implementation: Shredit/Shred-it name and trademark review; production capacity values; safe ingress-token provisioning; trusted upstream proxy CIDRs and GeoIP database; onion provisioning; native EN/zh-CN copy review; and final Privacy, Terms, Abuse, and Security public copy.
 
 Production deploy is intentionally out of scope for this implementation pass. The final report must state: `Production deploy не выполнялся. Remote repository не изменялся. Локальный сервер оставлен запущенным.`
 
