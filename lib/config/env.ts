@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { z } from "zod";
 
@@ -220,6 +221,22 @@ function validateIngressAuthToken(value: string): void {
   }
 }
 
+function loadIngressAuthTokenEnvironment(): NodeJS.ProcessEnv {
+  const environment = { ...process.env };
+  const tokenFile = environment.INGRESS_AUTH_TOKEN_FILE?.trim();
+  if (!tokenFile) return environment;
+  if (environment.INGRESS_AUTH_TOKEN?.trim())
+    throw new Error(
+      "Configure only one of INGRESS_AUTH_TOKEN and INGRESS_AUTH_TOKEN_FILE",
+    );
+  try {
+    environment.INGRESS_AUTH_TOKEN = readFileSync(tokenFile, "utf8").trim();
+  } catch {
+    throw new Error("INGRESS_AUTH_TOKEN_FILE could not be read");
+  }
+  return environment;
+}
+
 const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
@@ -245,6 +262,7 @@ const envSchema = z.object({
   TURNSTILE_BYPASS_ONION: booleanFromEnv.default(true),
   GEOIP_DB_PATH: optionalString,
   INGRESS_AUTH_TOKEN: optionalString,
+  INGRESS_AUTH_TOKEN_FILE: optionalString,
   TRUSTED_PROXY_CIDRS: z.string().default(""),
   IP_HASH_SECRET: z.string().default("dev-ip-hash-secret-change-me"),
   POW_SECRET: z.string().default("dev-pow-secret-change-me"),
@@ -281,7 +299,8 @@ let cached: ShreditEnv | undefined;
 /** Parse runtime configuration once. Production intentionally fails closed. */
 export function getEnv(): ShreditEnv {
   if (cached) return cached;
-  const parsed = envSchema.safeParse(process.env);
+  const runtimeEnvironment = loadIngressAuthTokenEnvironment();
+  const parsed = envSchema.safeParse(runtimeEnvironment);
   if (!parsed.success) {
     throw new Error(
       `Invalid environment configuration: ${parsed.error.issues.map((issue) => issue.path.join(".")).join(", ")}`,
@@ -365,7 +384,7 @@ export function getEnv(): ShreditEnv {
         (key === "DATABASE_URL" || key === "VALKEY_URL")
       )
         return false;
-      const raw = process.env[String(key)];
+      const raw = runtimeEnvironment[String(key)];
       return raw === undefined || raw === "" || !value[key];
     });
     if (!loopback && !value.GIT_REPOSITORY_URL)

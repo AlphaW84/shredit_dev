@@ -20,6 +20,7 @@ x-shredit-environment: &shredit-environment
   TURNSTILE_BYPASS_ONION: "true"
   GEOIP_DB_PATH: ""
   INGRESS_AUTH_TOKEN: ""
+  INGRESS_AUTH_TOKEN_FILE: ""
   TRUSTED_PROXY_CIDRS: 127.0.0.1/32,::1/128
   IP_HASH_SECRET: ${IP_HASH_SECRET:-local-compose-ip-hash-secret-0123456789abcdef0123456789abcdef}
   POW_SECRET: ${POW_SECRET:-local-compose-pow-secret-0123456789abcdef0123456789abcdef}

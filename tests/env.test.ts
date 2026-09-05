@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getEnv,
@@ -155,6 +158,37 @@ describe("fail-closed environment validation", () => {
     resetEnvForTests();
 
     expect(() => getEnv()).toThrow(/32 bytes encoded as unpadded base64url/u);
+  });
+
+  it("loads the ingress token from a server-only secret file", () => {
+    const directory = mkdtempSync(join(tmpdir(), "shredit-env-"));
+    const tokenPath = join(directory, "ingress-token");
+    try {
+      writeFileSync(tokenPath, `${INGRESS_AUTH_TOKEN}\n`, { mode: 0o600 });
+      configureProduction();
+      vi.stubEnv("INGRESS_AUTH_TOKEN", "");
+      vi.stubEnv("INGRESS_AUTH_TOKEN_FILE", tokenPath);
+      resetEnvForTests();
+
+      expect(getEnv().INGRESS_AUTH_TOKEN).toBe(INGRESS_AUTH_TOKEN);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects ambiguous ingress token sources", () => {
+    const directory = mkdtempSync(join(tmpdir(), "shredit-env-"));
+    const tokenPath = join(directory, "ingress-token");
+    try {
+      writeFileSync(tokenPath, INGRESS_AUTH_TOKEN, { mode: 0o600 });
+      configureProduction();
+      vi.stubEnv("INGRESS_AUTH_TOKEN_FILE", tokenPath);
+      resetEnvForTests();
+
+      expect(() => getEnv()).toThrow(/only one of INGRESS_AUTH_TOKEN/u);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("requires explicit trusted upstream ranges outside loopback", () => {
